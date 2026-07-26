@@ -1,10 +1,10 @@
-pandas
-openpyxl
-scikit-learn
-joblib
-jupyter
-matplotlib
-seaborn
-streamlit
-plotly
-tensorflow
+# Dependências do deploy (Streamlit Community Cloud lê este arquivo na raiz). Só o que o dashboard
+# importa de fato — tensorflow, jupyter e afins ficam em requirements-dev.txt, senão o deploy instala
+# ~600 MB à toa. Versões pinadas porque o risk_rf.pkl foi serializado com scikit-learn 1.9.0 e pickle de
+# sklearn não é garantido entre versões; o venv local usa Python 3.11 (selecionar o mesmo no deploy).
+streamlit==1.60.0
+pandas==3.0.5
+numpy==2.4.6
+scikit-learn==1.9.0
+joblib==1.5.3
+plotly==6.9.0

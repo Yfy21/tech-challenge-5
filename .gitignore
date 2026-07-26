@@ -9,6 +9,8 @@ __pycache__/
 # Configuração pessoal do PyCharm
 .idea/
 
-# Segredos e temporários
+# Segredos e temporários — .streamlit/config.toml (tema) é versionado, mas o secrets.toml que o
+# Streamlit pode criar no mesmo diretório nunca deve subir
 .env
+.streamlit/secrets.toml
 .xdp-qt_temp*
