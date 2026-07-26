@@ -1,0 +1,14 @@
+# Ambiente virtual e caches de Python
+.venv/
+__pycache__/
+*.pyc
+
+# Checkpoints do Jupyter
+.ipynb_checkpoints/
+
+# Configuração pessoal do PyCharm
+.idea/
+
+# Segredos e temporários
+.env
+.xdp-qt_temp*

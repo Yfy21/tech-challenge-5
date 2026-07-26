@@ -1,0 +1,53 @@
+{
+  "desenho": "early-warning t->t+1: prever defasagem (defas<0) no ano seguinte",
+  "campeao": "RandomForest",
+  "metricas_teste": {
+    "Regressão Logística": {
+      "acuracia": 0.7356,
+      "precisao": 0.7557,
+      "recall": 0.7279,
+      "f1": 0.7416,
+      "roc_auc": 0.8419,
+      "pr_auc": 0.8597
+    },
+    "RandomForest": {
+      "acuracia": 0.7816,
+      "precisao": 0.7724,
+      "recall": 0.8235,
+      "f1": 0.7972,
+      "roc_auc": 0.8706,
+      "pr_auc": 0.8562
+    },
+    "Rede Neural (Keras)": {
+      "acuracia": 0.751,
+      "precisao": 0.763,
+      "recall": 0.7574,
+      "f1": 0.7601,
+      "roc_auc": 0.8499,
+      "pr_auc": 0.8493
+    }
+  },
+  "features_num": [
+    "defas",
+    "inde",
+    "ida",
+    "ieg",
+    "iaa",
+    "ips",
+    "ipp",
+    "ipv",
+    "fase",
+    "idade",
+    "tempo_vinculo",
+    "d_inde",
+    "d_ieg",
+    "d_ida"
+  ],
+  "features_cat": [
+    "genero",
+    "tipo_instituicao"
+  ],
+  "limiar_padrao": 0.5,
+  "n_treino": 1029,
+  "n_teste": 261
+}
