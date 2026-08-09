@@ -1,34 +1,34 @@
 {
-  "desenho": "early-warning t->t+1: prever defasagem (defas<0) no ano seguinte",
+  "desenho": "early-warning t->t+1: prever defasagem (defasagem<0) no ano seguinte",
   "campeao": "RandomForest",
   "metricas_teste": {
     "Regressão Logística": {
-      "acuracia": 0.7356,
-      "precisao": 0.7557,
-      "recall": 0.7279,
-      "f1": 0.7416,
-      "roc_auc": 0.8419,
-      "pr_auc": 0.8597
+      "acuracia": 0.7318,
+      "precisao": 0.7578,
+      "recall": 0.7132,
+      "f1": 0.7348,
+      "roc_auc": 0.8432,
+      "pr_auc": 0.8598
     },
     "RandomForest": {
       "acuracia": 0.7816,
       "precisao": 0.7724,
       "recall": 0.8235,
       "f1": 0.7972,
-      "roc_auc": 0.8706,
-      "pr_auc": 0.8562
+      "roc_auc": 0.8712,
+      "pr_auc": 0.8583
     },
     "Rede Neural (Keras)": {
-      "acuracia": 0.751,
-      "precisao": 0.763,
-      "recall": 0.7574,
-      "f1": 0.7601,
-      "roc_auc": 0.8499,
-      "pr_auc": 0.8493
+      "acuracia": 0.7433,
+      "precisao": 0.7447,
+      "recall": 0.7721,
+      "f1": 0.7581,
+      "roc_auc": 0.8359,
+      "pr_auc": 0.8333
     }
   },
   "features_num": [
-    "defas",
+    "defasagem",
     "inde",
     "ida",
     "ieg",
@@ -41,7 +41,8 @@
     "tempo_vinculo",
     "d_inde",
     "d_ieg",
-    "d_ida"
+    "d_ida",
+    "d_ipv"
   ],
   "features_cat": [
     "genero",

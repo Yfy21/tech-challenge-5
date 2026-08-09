@@ -1,9 +1,11 @@
 # Ambiente completo de desenvolvimento: pipeline de dados (scripts/), EDA e modelagem (notebooks/).
 # Inclui as dependências do deploy e soma o que só é usado localmente — openpyxl para ler o dataset.xlsx
-# bruto, tensorflow para a rede neural do 02_modelagem, jupyter/matplotlib/seaborn para os notebooks.
+# bruto, tensorflow para a rede neural do 04_modelagem, jupyter para os notebooks. Os gráficos são todos
+# Plotly (já vem do requirements.txt, por causa do dashboard); kaleido é o que exporta o fallback estático
+# em png para o GitHub, que não executa JavaScript ao exibir um .ipynb — e ele exige um Chrome, instalável
+# com `plotly_get_chrome` ou apontado por BROWSER_PATH.
 -r requirements.txt
 openpyxl
 jupyter
-matplotlib
-seaborn
+kaleido
 tensorflow

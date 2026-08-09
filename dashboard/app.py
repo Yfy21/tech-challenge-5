@@ -2,7 +2,7 @@
 Dashboard do Datathon Passos Mágicos (FIAP Pós-Tech, Fase 5). Três seções: visão geral do painel PEDE
 2022-2024, análise por fase e indicadores, e o preditor de risco de defasagem — este último servido pelo
 modelo campeão (RandomForest, ROC-AUC 0.871 no teste), treinado no desenho early-warning t→t+1: os
-indicadores do ano corrente preveem se o aluno estará defasado (defas < 0) no ano seguinte.
+indicadores do ano corrente preveem se o aluno estará defasado (defasagem < 0) no ano seguinte.
 
 O preditor cobre apenas as fases 0-7: a fase 8 (universitários) é avaliada por rubrica própria, sem os
 indicadores que alimentam o modelo, e por isso fica fora tanto do treino quanto da predição. Pelo mesmo
@@ -60,8 +60,8 @@ def aplicar_marca(fig):
 @st.cache_data
 def carregar_painel() -> pd.DataFrame:
     df = pd.read_csv(PAINEL_PATH)
-    df["em_risco"] = (
-        df["em_risco"].map(lambda v: pd.NA if pd.isna(v) else v in (True, "True")).astype("boolean")
+    df["defasado"] = (
+        df["defasado"].map(lambda v: pd.NA if pd.isna(v) else v in (True, "True")).astype("boolean")
     )
     return df
 
@@ -78,15 +78,26 @@ def carregar_modelo():
     return modelo, meta
 
 
-def ian_a_partir_de_defas(defas: int) -> float:
-    """O IAN é função determinística da defasagem: 2.5 quando severa (defas <= -3), 5 quando moderada
-    (defas -2 ou -1) e 10 quando o aluno está em fase (defas >= 0). Derivá-lo da defasagem informada evita
-    que o usuário entre com um par (defas, IAN) que não existe nos dados."""
-    if defas <= -3:
+def ian_a_partir_de_defas(defasagem: int) -> float:
+    """O IAN é função determinística da defasagem: 2.5 quando severa (defasagem <= -3), 5 quando moderada
+    (defasagem -2 ou -1) e 10 quando o aluno está em fase (defasagem >= 0). Derivá-lo da defasagem informada evita
+    que o usuário entre com um par (defasagem, IAN) que não existe nos dados."""
+    if defasagem <= -3:
         return 2.5
-    if defas < 0:
+    if defasagem < 0:
         return 5.0
     return 10.0
+
+
+def base_defasagem(df: pd.DataFrame) -> pd.DataFrame:
+    """Recorte usado em toda taxa de defasagem, idêntico ao da P1 do 02_eda.ipynb. Universitários (fase 8 e
+    a fase anômala "9", que fica com fase NaN) só entram se já passaram pelas fases 0-7 em algum ano
+    anterior: chegar à graduação vindo do programa é o desfecho que a taxa deve capturar, mas quem entrou na
+    associação já universitário é bolsista — nunca poderia estar defasado e só diluiria a série. Precisa do
+    painel inteiro, não de um corte por ano, porque a primeira passagem pelas fases 0-7 é histórica."""
+    uni = df["fase"].isna() | (df["fase"] == 8)
+    prim_07 = df.loc[~uni].groupby("id_aluno")["ano"].min()
+    return df[~uni | (df["id_aluno"].map(prim_07) < df["ano"])]
 
 
 def pagina_visao_geral(df: pd.DataFrame, evasao: pd.DataFrame) -> None:
@@ -96,9 +107,16 @@ def pagina_visao_geral(df: pd.DataFrame, evasao: pd.DataFrame) -> None:
     ano_sel = st.selectbox("Ano de referência dos cartões", anos, index=len(anos) - 1)
     corte = df[df["ano"] == ano_sel]
 
+    df_def = base_defasagem(df)
+    corte_def = df_def[df_def["ano"] == ano_sel]
+
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Alunos avaliados", f"{corte['id_aluno'].nunique()}")
-    c2.metric("Alunos defasados", f"{corte['em_risco'].mean() * 100:.1f}%")
+    c2.metric(
+        "Alunos defasados", f"{corte_def['defasado'].mean() * 100:.1f}%",
+        help="Sobre os alunos que passaram pelas fases 0-7 — bolsistas que entraram já universitários "
+             "ficam fora, como na P1 do EDA.",
+    )
     c3.metric("INDE médio", f"{corte['inde'].mean():.2f}")
     ev_ano = evasao[evasao["ano_referencia"] == ano_sel]["evadiu"]
     c4.metric(
@@ -109,7 +127,7 @@ def pagina_visao_geral(df: pd.DataFrame, evasao: pd.DataFrame) -> None:
 
     col_esq, col_dir = st.columns(2)
 
-    serie_risco = df.groupby("ano")["em_risco"].mean().mul(100).reset_index(name="pct")
+    serie_risco = df_def.groupby("ano")["defasado"].mean().mul(100).reset_index(name="pct")
     fig = px.line(
         serie_risco, x="ano", y="pct", markers=True,
         title="Alunos defasados por ano (%)",
@@ -132,8 +150,18 @@ def pagina_visao_geral(df: pd.DataFrame, evasao: pd.DataFrame) -> None:
     col_dir.plotly_chart(aplicar_marca(fig), width="stretch")
 
     st.caption(
-        "A queda consistente da defasagem (69,9% → 54,4% → 47,8%) é o achado central do painel: na coorte "
-        "fixa dos alunos presentes nos três anos, a taxa cai de 67,3% para 34,8%."
+        "A queda consistente da defasagem (69,9% → 56,9% → 49,2%) é o achado central do painel: na coorte "
+        "fixa dos alunos presentes nos três anos, a taxa cai de 67,3% para 34,8%, e acompanhando aluno a "
+        "aluno 34,2% dos defasados recuperam a fase ideal no ano seguinte contra 27,9% que a perdem — a "
+        "queda é real, não efeito de quem saiu da base. A série conta os alunos que passaram pelas fases "
+        "0-7 e deixa de fora os bolsistas que entraram na associação já universitários — nunca poderiam "
+        "estar defasados. É o mesmo recorte da P1 do EDA."
+    )
+    st.caption(
+        "⚠️ As médias anuais dos indicadores comparam alunos diferentes a cada ano e devem ser lidas com "
+        "cuidado: a alta do IDA em 2023, por exemplo, encolhe de +0,57 para +0,36 quando se conta só quem "
+        "voltou no ano seguinte — 37,2% dela vem de quem saiu, não de quem ficou. Dentro do mesmo aluno, "
+        "2022→2023 é empate (+0,12) e 2023→2024 cai (−0,48). Ver P2 do EDA."
     )
 
 
@@ -147,7 +175,7 @@ def pagina_analise(df: pd.DataFrame) -> None:
     col_esq, col_dir = st.columns(2)
 
     piv = (
-        df07.pivot_table(index="fase", columns="ano", values="em_risco", aggfunc="mean")
+        df07.pivot_table(index="fase", columns="ano", values="defasado", aggfunc="mean")
         .mul(100).round(1)
     )
     fig = px.imshow(
@@ -177,8 +205,13 @@ def pagina_analise(df: pd.DataFrame) -> None:
     st.plotly_chart(aplicar_marca(fig), width="stretch")
 
     st.caption(
-        "A fase 8 (universitários) fica fora destes gráficos: é avaliada por rubrica própria e não possui "
-        "os indicadores padrão no painel — apenas o IAN e a defasagem."
+        "A relação entre engajamento e desempenho é a mais sólida da análise: além da correlação entre "
+        "alunos visível no gráfico (r ≈ 0,54), ela se confirma dentro do mesmo aluno — quando o IEG sobe "
+        "de um ano para o outro, o IDA sobe junto (P3 do EDA). É a associação mais bem sustentada do "
+        "relatório, o que não estabelece que aumentar o IEG *cause* a melhora do IDA — as duas coisas "
+        "andam juntas, e a P3 não separa qual puxa qual. A fase 8 (universitários) fica fora destes "
+        "gráficos: é avaliada por rubrica própria e não possui os indicadores padrão no painel — apenas "
+        "o IAN e a defasagem."
     )
 
 
@@ -193,7 +226,7 @@ def pagina_preditor(modelo, meta: dict) -> None:
     with st.form("form_preditor"):
         c1, c2, c3 = st.columns(3)
         fase = c1.selectbox("Fase atual", list(range(8)))
-        defas = c2.slider(
+        defasagem = c2.slider(
             "Defasagem atual (fase − fase ideal)", -5, 2, 0,
             help="Negativo = aluno atrasado em relação à fase ideal para a idade.",
         )
@@ -202,7 +235,7 @@ def pagina_preditor(modelo, meta: dict) -> None:
         c1, c2, c3 = st.columns(3)
         tempo_vinculo = c1.slider("Anos de vínculo com a associação", 0, 10, 1)
         genero = c2.radio("Gênero", ["Feminino", "Masculino"], horizontal=True)
-        tipo_inst = c3.selectbox("Tipo de instituição de ensino", ["Pública", "Privada", "Outra"])
+        tipo_inst = c3.selectbox("Tipo de instituição de ensino", ["Pública", "Privada"])
 
         st.markdown("**Indicadores do ano corrente (0-10)** — o IAN e o INDE são derivados automaticamente.")
         c1, c2, c3 = st.columns(3)
@@ -214,14 +247,25 @@ def pagina_preditor(modelo, meta: dict) -> None:
         ips = c2.slider("IPS — psicossocial", 0.0, 10.0, 7.0, 0.1)
         ipp = c3.slider("IPP — psicopedagógico", 0.0, 10.0, 7.5, 0.1)
 
+        # Na base PEDE o zero do IAA é recusa de responder, não autoimagem baixa (relatório 2022, p. 133),
+        # e as duas coisas entram no modelo separadas: a nota como iaa_val (ausente na recusa, imputada pelo
+        # pipeline) e o comportamento como iaa_recusa. O INDE, esse sim, usa o zero — é assim que a
+        # associação calcula o índice oficial, com a penalidade embutida.
+        iaa_recusa = st.checkbox(
+            "O aluno se recusou a responder à autoavaliação",
+            help="Marque em vez de arrastar o IAA para zero. A recusa é comportamento, não nota: o modelo "
+                 "a recebe como sinal próprio, e o INDE é recalculado com a penalidade oficial (IAA = 0).",
+        )
+
         tem_ano_anterior = st.checkbox(
             "O aluno tem avaliação do ano anterior (habilita as tendências)", value=False,
             help="Sem o ano anterior as variações ficam ausentes e o modelo usa a mediana do treino.",
         )
-        c1, c2, c3 = st.columns(3)
+        c1, c2, c3, c4 = st.columns(4)
         d_inde = c1.number_input("Δ INDE (ano atual − anterior)", -10.0, 10.0, 0.0, 0.1)
-        d_ieg = c2.number_input("Δ IEG", -10.0, 10.0, 0.0, 0.1)
-        d_ida = c3.number_input("Δ IDA", -10.0, 10.0, 0.0, 0.1)
+        d_ipv = c2.number_input("Δ IPV", -10.0, 10.0, 0.0, 0.1)
+        d_ieg = c3.number_input("Δ IEG", -10.0, 10.0, 0.0, 0.1)
+        d_ida = c4.number_input("Δ IDA", -10.0, 10.0, 0.0, 0.1)
 
         limiar = st.slider(
             "Limiar de classificação", 0.05, 0.95, float(meta["limiar_padrao"]), 0.05,
@@ -234,18 +278,21 @@ def pagina_preditor(modelo, meta: dict) -> None:
     if not submetido:
         return
 
-    ian = ian_a_partir_de_defas(defas)
-    indicadores = {"ian": ian, "ida": ida, "ieg": ieg, "iaa": iaa, "ips": ips, "ipp": ipp, "ipv": ipv}
+    ian = ian_a_partir_de_defas(defasagem)
+    indicadores = {"ian": ian, "ida": ida, "ieg": ieg, "iaa": 0.0 if iaa_recusa else iaa,
+                   "ips": ips, "ipp": ipp, "ipv": ipv}
     inde = sum(PESOS_INDE_0_7[k] * v for k, v in indicadores.items())
 
     entrada = pd.DataFrame([{
-        "defas": float(defas), "inde": inde, "ida": ida, "ieg": ieg, "iaa": iaa, "ips": ips,
+        "defasagem": float(defasagem), "inde": inde, "ida": ida, "ieg": ieg,
+        "iaa_val": np.nan if iaa_recusa else iaa, "iaa_recusa": float(iaa_recusa), "ips": ips,
         "ipp": ipp, "ipv": ipv, "fase": float(fase), "idade": float(idade),
         "tempo_vinculo": float(tempo_vinculo),
         "d_inde": d_inde if tem_ano_anterior else np.nan,
+        "d_ipv": d_ipv if tem_ano_anterior else np.nan,
         "d_ieg": d_ieg if tem_ano_anterior else np.nan,
         "d_ida": d_ida if tem_ano_anterior else np.nan,
-        "genero": 1.0 if genero == "Masculino" else 0.0,
+        "genero": "Masc" if genero == "Masculino" else "Fem",
         "tipo_instituicao": tipo_inst,
     }])
 
@@ -258,6 +305,15 @@ def pagina_preditor(modelo, meta: dict) -> None:
     c3.metric("Classificação", "🔴 Em risco" if em_risco else "🟢 Fora de risco",
               help=f"Limiar aplicado: {limiar:.2f}")
     st.progress(min(proba, 1.0))
+
+    if iaa_recusa:
+        sem_iaa = {k: p for k, p in PESOS_INDE_0_7.items() if k != "iaa"}
+        inde_sem_penalidade = sum(sem_iaa[k] * indicadores[k] for k in sem_iaa) / sum(sem_iaa.values())
+        st.caption(
+            f"Com a recusa, o INDE oficial cai para {inde:.2f}; repondo os seis indicadores restantes para "
+            f"somar 1, ele seria {inde_sem_penalidade:.2f}. Na base, essa penalidade fez 148 dos 245 alunos "
+            "que recusaram — 60,4% — aparecerem uma pedra abaixo (P4 do EDA)."
+        )
 
     if em_risco:
         st.error(
@@ -275,7 +331,7 @@ def pagina_preditor(modelo, meta: dict) -> None:
         st.dataframe(tab, width="stretch")
         st.caption(
             f"Campeão em produção: **{meta['campeao']}**. A rede neural (Keras) e a regressão logística "
-            "estão treinadas e comparadas em notebooks/02_modelagem.ipynb."
+            "estão treinadas e comparadas em notebooks/04_modelagem.ipynb."
         )
 
 
