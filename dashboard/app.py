@@ -1,8 +1,11 @@
 """
-Dashboard do Datathon Passos Mágicos (FIAP Pós-Tech, Fase 5). Três seções: visão geral do painel PEDE
-2022-2024, análise por fase e indicadores, e o preditor de risco de defasagem — este último servido pelo
-modelo campeão (RandomForest, ROC-AUC 0.871 no teste), treinado no desenho early-warning t→t+1: os
-indicadores do ano corrente preveem se o aluno estará defasado (defasagem < 0) no ano seguinte.
+Dashboard do Datathon Passos Mágicos (FIAP Pós-Tech, Fase 5). Duas seções: a visão geral do painel PEDE
+2022-2024, que carrega os achados centrais do EDA, e o preditor de risco de defasagem, que é o objetivo do
+app — servido pelo modelo campeão (RandomForest, ROC-AUC 0.873 no teste), treinado no desenho early-warning
+t→t+1: os indicadores do ano corrente preveem se o aluno estará defasado (defasagem < 0) no ano seguinte.
+
+A leitura por fase e por indicador que existia numa terceira seção saiu: ela repetia, em versão mais pobre,
+o que o `notebooks/02_eda.ipynb` e a apresentação de storytelling já entregam com mais espaço e contexto.
 
 O preditor cobre apenas as fases 0-7: a fase 8 (universitários) é avaliada por rubrica própria, sem os
 indicadores que alimentam o modelo, e por isso fica fora tanto do treino quanto da predição. Pelo mesmo
@@ -32,7 +35,6 @@ PESOS_INDE_0_7 = {"ian": 0.1, "ida": 0.2, "ieg": 0.2, "iaa": 0.1, "ips": 0.1, "i
 # Paleta da marca pessoal, em ordem fixa validada para daltonismo e visão normal sobre o fundo #F5F7FA:
 # âmbar e coral não podem ficar adjacentes (ΔE 11.9, abaixo do piso de distinção de 15).
 CORES_MARCA = ["#1F3A5F", "#E0A458", "#2F6F73", "#DF745C", "#4C6A92", "#9AA5B1"]
-ESCALA_RISCO = ["#F5F7FA", "#E79887", "#DF745C"]  # sequencial de um matiz só: claro = pouco risco
 COR_TINTA = "#1F3A5F"
 COR_GRADE = "rgba(154, 165, 177, 0.35)"  # Cool Gray da marca com transparência
 
@@ -100,8 +102,60 @@ def base_defasagem(df: pd.DataFrame) -> pd.DataFrame:
     return df[~uni | (df["id_aluno"].map(prim_07) < df["ano"])]
 
 
+ORDEM_TRAJETORIA = ["Segue em fase", "Recupera a fase ideal", "Perde a fase ideal", "Segue defasado"]
+CORES_TRAJETORIA = {
+    "Segue em fase": "#1F3A5F", "Recupera a fase ideal": "#2F6F73",
+    "Perde a fase ideal": "#DF745C", "Segue defasado": "#9AA5B1",
+}
+ORDEM_SAIDA = ["Permaneceu", "Saiu no ano seguinte"]
+CORES_SAIDA = {"Permaneceu": "#1F3A5F", "Saiu no ano seguinte": "#DF745C"}
+
+
+def taxa_defasagem_por_ano(df: pd.DataFrame, grupo: str) -> pd.DataFrame:
+    """Percentual de defasados por ano, em formato longo e com o rótulo do grupo — o `defasado` é booleano
+    anulável do pandas, e o Plotly precisa de float puro."""
+    serie = df.groupby("ano")["defasado"].mean().mul(100).astype(float)
+    return serie.rename("pct").reset_index().assign(grupo=grupo)
+
+
+def trajetoria_por_transicao(df: pd.DataFrame, anos: list) -> tuple[pd.DataFrame, int]:
+    """Reparte cada transição ano→ano+1 nos quatro destinos possíveis do mesmo aluno. Só entram alunos com
+    avaliação nas duas pontas: é o recorte que torna a queda de defasagem um movimento de pessoa, e não um
+    efeito de quem entrou ou saiu da base entre um ano e outro."""
+    largura = df.pivot_table(index="id_aluno", columns="ano", values="defasado", aggfunc="first")
+    linhas, total = [], 0
+    for ano in anos[:-1]:
+        if ano + 1 not in largura.columns:
+            continue
+        par = largura[[ano, ano + 1]].dropna()
+        antes, depois = par[ano].astype(bool), par[ano + 1].astype(bool)
+        total += len(par)
+        destinos = {
+            "Segue em fase": ~antes & ~depois, "Recupera a fase ideal": antes & ~depois,
+            "Perde a fase ideal": ~antes & depois, "Segue defasado": antes & depois,
+        }
+        linhas += [{"transicao": f"{ano}→{ano + 1}", "situacao": nome, "pct": mascara.mean() * 100}
+                   for nome, mascara in destinos.items()]
+    return pd.DataFrame(linhas), total
+
+
+def perfil_de_saida(df: pd.DataFrame, evasao: pd.DataFrame) -> pd.DataFrame:
+    """Média de IEG, IDA e IPS no ano de referência, separando quem reapareceu na avaliação seguinte de quem
+    não reapareceu. O ano vira texto porque o Plotly trataria a coluna numérica como escala contínua."""
+    perfil = df.merge(evasao, left_on=["id_aluno", "ano"], right_on=["id_aluno", "ano_referencia"])
+    perfil["grupo"] = perfil["evadiu"].map({True: "Saiu no ano seguinte", False: "Permaneceu"})
+    medias = perfil.groupby(["ano_referencia", "grupo"])[["ieg", "ida", "ips"]].mean().reset_index()
+    longo = medias.melt(id_vars=["ano_referencia", "grupo"], var_name="indicador", value_name="media")
+    return longo.assign(ano=lambda d: d["ano_referencia"].astype(str),
+                        indicador=lambda d: d["indicador"].str.upper())
+
+
 def pagina_visao_geral(df: pd.DataFrame, evasao: pd.DataFrame) -> None:
     st.header("Visão geral — PEDE 2022-2024")
+    st.markdown(
+        "Os três achados que sustentam o resto da entrega: a defasagem cai, ela cai **dentro do mesmo "
+        "aluno**, e a base se renova o bastante para que nenhuma média anual possa ser lida sozinha."
+    )
 
     anos = sorted(df["ano"].unique())
     ano_sel = st.selectbox("Ano de referência dos cartões", anos, index=len(anos) - 1)
@@ -117,101 +171,94 @@ def pagina_visao_geral(df: pd.DataFrame, evasao: pd.DataFrame) -> None:
         help="Sobre os alunos que passaram pelas fases 0-7 — bolsistas que entraram já universitários "
              "ficam fora, como na P1 do EDA.",
     )
-    c3.metric("INDE médio", f"{corte['inde'].mean():.2f}")
+    c3.metric(
+        "Defasagem severa", f"{(corte_def['defasagem'] <= -3).mean() * 100:.1f}%",
+        help="Três anos ou mais atrás da fase ideal. É o movimento mais forte da P1: 3,3% em 2022, 1,4% em "
+             "2023 e 0,3% em 2024 — o atraso extremo praticamente desaparece do painel.",
+    )
+    # O último ano do painel não tem ano seguinte para comparar: o cartão fica vazio de propósito, e o
+    # aviso vai no corpo dele para que a lacuna se explique sem depender do tooltip.
     ev_ano = evasao[evasao["ano_referencia"] == ano_sel]["evadiu"]
     c4.metric(
         f"Evasão {ano_sel}→{ano_sel + 1}",
         f"{ev_ano.mean() * 100:.1f}%" if len(ev_ano) else "—",
+        delta=None if len(ev_ano) else "sem avaliação posterior na base",
+        delta_color="off",
         help="Aluno presente no ano de referência e ausente no seguinte. Não há transição a partir de 2024.",
     )
 
     col_esq, col_dir = st.columns(2)
 
-    serie_risco = df_def.groupby("ano")["defasado"].mean().mul(100).reset_index(name="pct")
+    # A coorte fixa é o teste mais duro da queda: sempre as mesmas pessoas, sem entrada nem saída para
+    # explicar o resultado. Definida dentro do recorte da P1, não sobre o painel bruto.
+    anos_por_aluno = df_def.groupby("id_aluno")["ano"].nunique()
+    coorte = anos_por_aluno[anos_por_aluno == len(anos)].index
+    serie = pd.concat([
+        taxa_defasagem_por_ano(df_def, "Painel do ano (todos os avaliados)"),
+        taxa_defasagem_por_ano(df_def[df_def["id_aluno"].isin(coorte)],
+                               f"Coorte fixa ({len(coorte)} alunos, presentes nos três anos)"),
+    ])
     fig = px.line(
-        serie_risco, x="ano", y="pct", markers=True,
-        title="Alunos defasados por ano (%)",
-        labels={"ano": "Ano", "pct": "% defasados"},
+        serie, x="ano", y="pct", color="grupo", markers=True,
+        title="Alunos defasados por ano (%): painel × coorte fixa",
+        labels={"ano": "Ano", "pct": "% defasados", "grupo": ""},
     )
     fig.update_traces(line_width=2, marker_size=9)
     fig.update_xaxes(dtick=1)
+    fig.update_yaxes(range=[0, 80])
+    fig.update_layout(legend=dict(orientation="h", yanchor="top", y=-0.2, x=0))
     col_esq.plotly_chart(aplicar_marca(fig), width="stretch")
+    col_esq.caption(
+        "A defasagem cai de 69,9% para 49,2% no painel. Na coorte fixa — sempre os mesmos 468 alunos — ela "
+        "cai mais, de 67,3% para 34,8%: o resultado é maior justamente no grupo em que a composição não "
+        "muda. A taxa publicada é a mais alta das duas porque inclui quem chegou depois — dos 358 alunos "
+        "que entraram em 2024, 62,8% já chegaram defasados."
+    )
 
-    medias = df.groupby("ano")[["inde", "ida", "ieg", "ipv"]].mean().round(2).reset_index()
-    medias_long = medias.melt(id_vars="ano", var_name="indicador", value_name="media")
-    medias_long["indicador"] = medias_long["indicador"].str.upper()
+    traj, n_transicoes = trajetoria_por_transicao(df_def, anos)
     fig = px.bar(
-        medias_long, x="ano", y="media", color="indicador", barmode="group",
-        title="Médias dos principais indicadores por ano",
-        labels={"ano": "Ano", "media": "Média (0-10)", "indicador": "Indicador"},
+        traj, x="transicao", y="pct", color="situacao", text_auto=".1f",
+        category_orders={"situacao": ORDEM_TRAJETORIA}, color_discrete_map=CORES_TRAJETORIA,
+        title="Para onde vai o mesmo aluno, de um ano para o outro (%)",
+        labels={"transicao": "Transição", "pct": "% dos alunos acompanhados", "situacao": ""},
     )
     fig.update_traces(marker_line_width=0)
-    fig.update_xaxes(dtick=1)
+    fig.update_layout(legend=dict(orientation="h", yanchor="top", y=-0.2, x=0))
     col_dir.plotly_chart(aplicar_marca(fig), width="stretch")
-
-    st.caption(
-        "A queda consistente da defasagem (69,9% → 56,9% → 49,2%) é o achado central do painel: na coorte "
-        "fixa dos alunos presentes nos três anos, a taxa cai de 67,3% para 34,8%, e acompanhando aluno a "
-        "aluno 34,2% dos defasados recuperam a fase ideal no ano seguinte contra 27,9% que a perdem — a "
-        "queda é real, não efeito de quem saiu da base. A série conta os alunos que passaram pelas fases "
-        "0-7 e deixa de fora os bolsistas que entraram na associação já universitários — nunca poderiam "
-        "estar defasados. É o mesmo recorte da P1 do EDA."
-    )
-    st.caption(
-        "⚠️ As médias anuais dos indicadores comparam alunos diferentes a cada ano e devem ser lidas com "
-        "cuidado: a alta do IDA em 2023, por exemplo, encolhe de +0,57 para +0,36 quando se conta só quem "
-        "voltou no ano seguinte — 37,2% dela vem de quem saiu, não de quem ficou. Dentro do mesmo aluno, "
-        "2022→2023 é empate (+0,12) e 2023→2024 cai (−0,48). Ver P2 do EDA."
+    total_fmt = f"{n_transicoes:,}".replace(",", ".")  # separador de milhar em português
+    col_dir.caption(
+        f"Aqui a queda deixa de ser estatística de turma e vira movimento de pessoa. Nas {total_fmt} "
+        "transições acompanhadas, 20,9% dos alunos recuperam a fase ideal contra 10,9% que a perdem — dois "
+        "recuperam para cada um que perde. E o ritmo melhora: 17,5% de recuperação em 2022→2023 contra "
+        "23,7% em 2023→2024."
     )
 
-
-def pagina_analise(df: pd.DataFrame) -> None:
-    st.header("Análise por fase e indicadores")
-
-    # ano vira categórico para os gráficos coloridos por ano: numérico, o Plotly aplicaria uma escala
-    # contínua em vez das cores discretas da marca.
-    df07 = df[df["fase"] <= 7].assign(ano=lambda d: d["ano"].astype(str))
-
-    col_esq, col_dir = st.columns(2)
-
-    piv = (
-        df07.pivot_table(index="fase", columns="ano", values="defasado", aggfunc="mean")
-        .mul(100).round(1)
+    fig = px.bar(
+        perfil_de_saida(df, evasao), x="indicador", y="media", color="grupo", barmode="group",
+        text_auto=".2f", facet_col="ano", category_orders={"grupo": ORDEM_SAIDA},
+        color_discrete_map=CORES_SAIDA,
+        title="Quem sai já estava atrás — média do indicador no ano de referência",
+        labels={"indicador": "", "media": "Média (0-10)", "grupo": ""},
     )
-    fig = px.imshow(
-        piv, text_auto=".0f", aspect="auto", color_continuous_scale=ESCALA_RISCO,
-        title="Alunos defasados por fase × ano (%)",
-        labels={"x": "Ano", "y": "Fase", "color": "% defasados"},
-    )
-    # Mesmo com o ano como string, o Plotly reconverte rótulos numéricos para eixo linear e cria ticks
-    # fracionários (2.022,5); forçar o tipo categórico mantém só os três anos.
-    fig.update_xaxes(type="category")
-    fig.update_yaxes(dtick=1)
-    col_esq.plotly_chart(aplicar_marca(fig), width="stretch")
-
-    fig = px.box(
-        df07.dropna(subset=["inde"]), x="fase", y="inde", color="ano",
-        title="Distribuição do INDE por fase",
-        labels={"fase": "Fase", "inde": "INDE", "ano": "Ano"},
-    )
-    col_dir.plotly_chart(aplicar_marca(fig), width="stretch")
-
-    amostra = df07.dropna(subset=["ieg", "ida"])
-    fig = px.scatter(
-        amostra, x="ieg", y="ida", color="ano", opacity=0.45,
-        title="Engajamento (IEG) × desempenho acadêmico (IDA)",
-        labels={"ieg": "IEG", "ida": "IDA", "ano": "Ano"},
-    )
+    fig.for_each_annotation(lambda a: a.update(text=a.text.split("=")[-1]))
+    fig.update_traces(marker_line_width=0)
+    fig.update_yaxes(range=[0, 10])
     st.plotly_chart(aplicar_marca(fig), width="stretch")
 
     st.caption(
-        "A relação entre engajamento e desempenho é a mais sólida da análise: além da correlação entre "
-        "alunos visível no gráfico (r ≈ 0,54), ela se confirma dentro do mesmo aluno — quando o IEG sobe "
-        "de um ano para o outro, o IDA sobe junto (P3 do EDA). É a associação mais bem sustentada do "
-        "relatório, o que não estabelece que aumentar o IEG *cause* a melhora do IDA — as duas coisas "
-        "andam juntas, e a P3 não separa qual puxa qual. A fase 8 (universitários) fica fora destes "
-        "gráficos: é avaliada por rubrica própria e não possui os indicadores padrão no painel — apenas "
-        "o IAN e a defasagem."
+        "Entre um quarto e um terço da base se renova a cada ano — 30,2% dos alunos de 2022 não estavam lá "
+        "em 2023, e 24,6% dos de 2023 não estavam em 2024. E quem sai não é um aluno qualquer: sai com "
+        "engajamento e desempenho visivelmente abaixo de quem fica. É por isso que uma média anual pode "
+        "subir sem que nenhum aluno tenha melhorado, e é por isso que os dois gráficos acima comparam o "
+        "aluno com ele mesmo: a alta do IDA em 2023 (6,09 → 6,66), por exemplo, encolhe de +0,57 para "
+        "+0,36 contando só quem voltou no ano seguinte, e dentro do mesmo aluno vira empate (+0,12) e "
+        "depois queda (−0,48). Repare também no IPS: é o único dos três que não separa quem sai de quem "
+        "fica — o mesmo indicador que a P5 mostra não servir como sinal antecedente."
+    )
+    st.caption(
+        "⚠️ *Sair* aqui significa não reaparecer na avaliação PEDE seguinte, o que não é necessariamente "
+        "abandono do programa. A análise completa — por fase, por indicador e pergunta a pergunta — está "
+        "em `notebooks/02_eda.ipynb`."
     )
 
 
@@ -343,7 +390,7 @@ def main() -> None:
     st.sidebar.title("🎓 Passos Mágicos")
     pagina = st.sidebar.radio(
         "Seção",
-        ["Visão geral", "Análise por fase", "Preditor de risco"],
+        ["Visão geral", "Preditor de risco"],
         label_visibility="collapsed",
     )
     st.sidebar.divider()
@@ -356,8 +403,6 @@ def main() -> None:
 
     if pagina == "Visão geral":
         pagina_visao_geral(df, evasao)
-    elif pagina == "Análise por fase":
-        pagina_analise(df)
     else:
         pagina_preditor(modelo, meta)
 

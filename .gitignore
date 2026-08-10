@@ -13,6 +13,9 @@ __pycache__/
 /documentation/
 /planning/
 
+# Roteiro do vídeo, gráficos e o .odt do storytelling — material da apresentação, entregue por fora
+/apresentacao/
+
 # Estado do agente Refact (briefings, filas, logs de chat) — ferramenta local, não é código do projeto
 .refact/
 

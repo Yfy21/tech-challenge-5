@@ -20,7 +20,7 @@ notebooks/02_eda.ipynb  análise exploratória — respostas às 11 perguntas
 scripts/03_features.py  base de features t→t+1 do modelo (base_risco.csv)
 notebooks/04_modelagem.ipynb  modelos, comparação, validações e exportação
 models/                 artefatos exportados (risk_rf.pkl, risk_nn.keras, metadata)
-dashboard/app.py        aplicação Streamlit em 3 seções
+dashboard/app.py        aplicação Streamlit: visão geral do painel + preditor de risco
 ```
 
 ## 1. Limpeza (`scripts/01_clean.py`)
@@ -166,10 +166,11 @@ existe para isso.
 
 ## 5. Dashboard (`dashboard/app.py`)
 
-Aplicação Streamlit em três seções: **Visão geral** (evolução da defasagem, evasão e indicadores por ano),
-**Análise por fase** (heatmap de taxa de risco por fase × ano e recortes) e **Preditor de risco** (carrega
-`risk_rf.pkl` e pontua um aluno a partir dos indicadores informados, com limiar ajustável). O tema segue a
-identidade visual definida em `.streamlit/config.toml`.
+Aplicação Streamlit em duas seções: **Visão geral** (defasagem por ano no painel e na coorte fixa, destino
+do mesmo aluno a cada transição e perfil de quem sai da base) e **Preditor de risco** (carrega `risk_rf.pkl`
+e pontua um aluno a partir dos indicadores informados, com limiar ajustável) — que é o propósito principal
+do app. A leitura por fase e por indicador fica no `notebooks/02_eda.ipynb`, com mais espaço e contexto do
+que uma tela comportaria. O tema segue a identidade visual definida em `.streamlit/config.toml`.
 
 ## Como executar
 
