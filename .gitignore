@@ -9,6 +9,13 @@ __pycache__/
 # Configuração pessoal do PyCharm
 .idea/
 
+# Material de apoio e notas de trabalho — ficam só na máquina local, não fazem parte da entrega
+/documentation/
+/planning/
+
+# Estado do agente Refact (briefings, filas, logs de chat) — ferramenta local, não é código do projeto
+.refact/
+
 # Segredos e temporários — .streamlit/config.toml (tema) é versionado, mas o secrets.toml que o
 # Streamlit pode criar no mesmo diretório nunca deve subir
 .env
