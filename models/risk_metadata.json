@@ -4,27 +4,27 @@
   "metricas_teste": {
     "Regressão Logística": {
       "acuracia": 0.7318,
-      "precisao": 0.7578,
-      "recall": 0.7132,
-      "f1": 0.7348,
-      "roc_auc": 0.8432,
-      "pr_auc": 0.8598
+      "precisao": 0.7538,
+      "recall": 0.7206,
+      "f1": 0.7368,
+      "roc_auc": 0.8462,
+      "pr_auc": 0.862
     },
     "RandomForest": {
-      "acuracia": 0.7816,
-      "precisao": 0.7724,
-      "recall": 0.8235,
-      "f1": 0.7972,
-      "roc_auc": 0.8712,
-      "pr_auc": 0.8583
+      "acuracia": 0.7893,
+      "precisao": 0.7755,
+      "recall": 0.8382,
+      "f1": 0.8057,
+      "roc_auc": 0.8726,
+      "pr_auc": 0.8594
     },
     "Rede Neural (Keras)": {
-      "acuracia": 0.7433,
-      "precisao": 0.7447,
-      "recall": 0.7721,
-      "f1": 0.7581,
-      "roc_auc": 0.8359,
-      "pr_auc": 0.8333
+      "acuracia": 0.7625,
+      "precisao": 0.7606,
+      "recall": 0.7941,
+      "f1": 0.777,
+      "roc_auc": 0.8366,
+      "pr_auc": 0.833
     }
   },
   "features_num": [
@@ -32,7 +32,8 @@
     "inde",
     "ida",
     "ieg",
-    "iaa",
+    "iaa_val",
+    "iaa_recusa",
     "ips",
     "ipp",
     "ipv",

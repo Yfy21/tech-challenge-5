@@ -102,7 +102,7 @@ autoavaliação, não a nota) e o IPP como indicador que responde ao progresso d
 A base do modelo (`base_risco.csv`, 1.290 transições) segue o desenho **t→t+1**: cada linha acompanha
 um aluno de um ano para o seguinte, com as features observadas no ano t e o alvo `defasado` observado em t+1. Não
 há circularidade — defasagem e indicadores do ano t são preditores legítimos do risco futuro; o que não pode é
-usar os do próprio ano-alvo. Entram 15 features numéricas (indicadores, fase, idade, tempo de vínculo e as
+usar os do próprio ano-alvo. Entram 16 features numéricas (indicadores, fase, idade, tempo de vínculo e as
 tendências d_inde/d_ipv/d_ieg/d_ida, que são NaN quando não existe ano anterior) e 2 categóricas (gênero,
 tipo de instituição). O IAN fica de fora por ser função determinística de defasagem — seria redundante.
 Os quatro indicadores que ganham tendência são os de sinal mais forte na P9 do EDA (INDE −0,34, IPV −0,34,
@@ -112,12 +112,14 @@ comparável entre anos (28,0% dos alunos de 2023 no piso, contra 0,1% em 2022), 
 ano a ano do próprio IPS mediria mudança de régua, não trajetória do aluno. E o IPP de 2022 é valor
 reconstruído, cuja diferença para 2023 misturaria reconstruído com medido.
 
-**Limitação conhecida.** As features usam o `iaa` como publicado, e não o `iaa_val` — 249 linhas entram no
-treino com um zero que significa recusa de participar, não autoavaliação baixa. O peso disso no modelo é
-pequeno (o IAA é o sinal univariado mais fraco da P9, 0,02), mas a correção adequada seria trocar por
-`iaa_val` e acrescentar `iaa_recusa` como feature binária — a recusa é comportamento, e em 2022 ela
-apareceu associada à evasão (51,3% contra 29,2%, p = 0,006). Isso exige retreinar e revalidar o campeão,
-e ficou fora desta entrega.
+**Tratamento da autoavaliação.** O `iaa` publicado traz zero onde o aluno se recusou a responder: 249 linhas
+em que o zero significa não participar, e não autoimagem baixa. Alimentar o modelo com esse zero é ensinar
+uma queda de indicador que nunca aconteceu, então a autoavaliação entra em duas colunas — a nota como
+`iaa_val`, em que a recusa vira ausente e é imputada pela mediana do treino, e o comportamento como
+`iaa_recusa`, feature binária própria. Separar as duas se justifica porque a recusa carrega sinal
+independente: em 2022 ela apareceu associada à evasão (51,3% contra 29,2%, p = 0,006). O efeito nas
+métricas agregadas é modesto, como se espera do indicador de sinal univariado mais fraco da P9 (0,02), mas
+o recall no subgrupo crítico sobe de 0,73 para 0,82 — e é esse subgrupo que justifica o modelo existir.
 
 O split de teste separa 20% dos **alunos** (GroupShuffleSplit por `id_aluno`), não 20% das linhas, porque
 o mesmo aluno em anos diferentes nos dois lados do split inflaria as métricas. Imputação e escala são
@@ -125,14 +127,14 @@ ajustadas só no treino. Três modelos disputam:
 
 | Modelo | Acurácia | F1 | ROC-AUC | Recall novos defasados* |
 |---|---|---|---|---|
-| Regressão Logística (baseline) | 0,732 | 0,735 | 0,843 | 0,27 |
-| **RandomForest (campeão)** | **0,782** | **0,797** | **0,871** | **0,73** |
-| Rede Neural (Keras) | 0,743 | 0,758 | 0,836 | 0,59 |
+| Regressão Logística (baseline) | 0,732 | 0,737 | 0,846 | 0,27 |
+| **RandomForest (campeão)** | **0,789** | **0,806** | **0,873** | **0,82** |
+| Rede Neural (Keras) | 0,762 | 0,777 | 0,837 | 0,68 |
 
 \* recall no subgrupo crítico do teste: alunos em dia no ano t que se defasaram em t+1 (22 casos) —
 exatamente quem um alerta precoce existe para pegar.
 
-O RandomForest vence em todas as métricas agregadas e, sobretudo, no subgrupo crítico: pega 73% dos alunos
+O RandomForest vence em todas as métricas agregadas e, sobretudo, no subgrupo crítico: pega 82% dos alunos
 que vão se defasar estando hoje em dia, contra 27% do baseline linear. A rede neural (MLP com duas camadas
 ocultas, dropout e early stopping por AUC em validação separada por aluno) fica próxima e cumpre o
 requisito de Deep Learning da fase; com ~1.300 exemplos tabulares, o teto de uma MLP contra árvores é
@@ -151,12 +153,12 @@ número se sustenta — com o caveat de rótulo já citado.
 
 **Baseline de persistência.** A regra "quem está defasado hoje continua defasado no ano que vem" não exige
 modelo algum e já acerta bastante (acurácia 0,686; ROC-AUC 0,744 usando −defasagem como score). O campeão
-supera com folga (0,782 e 0,871) — o pipeline agrega sinal real além do óbvio.
+supera com folga (0,789 e 0,873) — o pipeline agrega sinal real além do óbvio.
 
 **Validação temporal.** O split por aluno impede memorizar alunos, mas não impede aprender padrões
 específicos de um ano; treinar só nas transições 2022→2023 e testar nas de 2023→2024 reproduz o cenário real
-de uso. O poder de **ordenação** se mantém quase intacto (ROC-AUC 0,865 contra 0,871 do split aleatório),
-mas o limiar fixo de 0,5 descalibra (recall 0,57), porque a prevalência do alvo despenca entre treino e
+de uso. O poder de **ordenação** se mantém quase intacto (ROC-AUC 0,864 contra 0,873 do split aleatório),
+mas o limiar fixo de 0,5 descalibra (recall 0,56), porque a prevalência do alvo despenca entre treino e
 teste (61% → 44%) e o treino de 2022 não enxerga as tendências d_* (não existe 2021). A conclusão
 operacional: o modelo deve ser usado como **ranking de priorização** — atender os top-N alunos de maior
 probabilidade conforme a capacidade da equipe — em vez de corte fixo; o limiar ajustável do dashboard
