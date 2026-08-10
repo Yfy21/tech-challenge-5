@@ -170,7 +170,9 @@ Aplicação Streamlit em duas seções: **Visão geral** (defasagem por ano no p
 do mesmo aluno a cada transição e perfil de quem sai da base) e **Preditor de risco** (carrega `risk_rf.pkl`
 e pontua um aluno a partir dos indicadores informados, com limiar ajustável) — que é o propósito principal
 do app. A leitura por fase e por indicador fica no `notebooks/02_eda.ipynb`, com mais espaço e contexto do
-que uma tela comportaria. O tema segue a identidade visual definida em `.streamlit/config.toml`.
+que uma tela comportaria. O tema segue a identidade visual definida em `.streamlit/config.toml`, e os
+gráficos usam as mesmas convenções do EDA — paleta e nomes das categorias, barras divergentes para
+movimentos opostos, `n` de cada grupo no rótulo do eixo e hover com a contagem que produziu cada taxa.
 
 ## Como executar
 

@@ -21,8 +21,10 @@ from pathlib import Path
 import joblib
 import numpy as np
 import pandas as pd
-import plotly.express as px
+import plotly.graph_objects as go
+import plotly.io as pio
 import streamlit as st
+from plotly.subplots import make_subplots
 
 RAIZ = Path(__file__).resolve().parent.parent
 PAINEL_PATH = RAIZ / "data" / "processed" / "pede_unificado.csv"
@@ -35,27 +37,77 @@ PESOS_INDE_0_7 = {"ian": 0.1, "ida": 0.2, "ieg": 0.2, "iaa": 0.1, "ips": 0.1, "i
 # Paleta da marca pessoal, em ordem fixa validada para daltonismo e visão normal sobre o fundo #F5F7FA:
 # âmbar e coral não podem ficar adjacentes (ΔE 11.9, abaixo do piso de distinção de 15).
 CORES_MARCA = ["#1F3A5F", "#E0A458", "#2F6F73", "#DF745C", "#4C6A92", "#9AA5B1"]
-COR_TINTA = "#1F3A5F"
+AZUL, AMBAR, TEAL, CORAL = CORES_MARCA[:4]
+CINZA = CORES_MARCA[5]
+COR_TINTA = AZUL
 COR_GRADE = "rgba(154, 165, 177, 0.35)"  # Cool Gray da marca com transparência
 
-px.defaults.color_discrete_sequence = CORES_MARCA
+pio.templates.default = "plotly_white"  # mesma base do 02_eda.ipynb, antes da identidade da marca
 
 st.set_page_config(page_title="Datathon Passos Mágicos", page_icon="🎓", layout="wide")
 
 
-def aplicar_marca(fig):
-    """Aplica a identidade visual sobre o gráfico Plotly: fundos transparentes (a superfície off-white vem
-    do tema do Streamlit em .streamlit/config.toml), tipografia na tinta da marca e grade discreta em Cool
-    Gray — a grade deve recuar, não competir com as marcas de dados."""
+def aplicar_marca(fig, altura=430):
+    """Aplica a identidade visual sobre o gráfico Plotly: tipografia na tinta da marca, grade discreta em
+    Cool Gray — a grade deve recuar, não competir com as marcas de dados — e a mesma altura e margem do
+    `aplicar_tema` do 02_eda.ipynb, para que gráfico de notebook e gráfico de app tenham a mesma proporção.
+
+    A única divergência deliberada em relação ao notebook são os fundos: lá eles são fixados no off-white
+    opaco da marca para que o tema escuro da IDE não os repinte; aqui ficam transparentes de propósito,
+    porque a superfície já vem do tema do Streamlit em .streamlit/config.toml."""
     fig.update_layout(
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
         font_color=COR_TINTA,
         title_font_color=COR_TINTA,
         legend_title_font_color=COR_TINTA,
+        height=altura,
+        margin=dict(l=70, r=30, t=60, b=55),
     )
     fig.update_xaxes(gridcolor=COR_GRADE, linecolor=COR_GRADE, zerolinecolor=COR_GRADE)
     fig.update_yaxes(gridcolor=COR_GRADE, linecolor=COR_GRADE, zerolinecolor=COR_GRADE)
+    return fig
+
+
+def rotulo_n(rotulos, ns):
+    """Escreve o tamanho do grupo no próprio rótulo do eixo, como no EDA: deixar o n só no hover não
+    resolve, porque o gráfico também é lido em captura de tela e na apresentação, onde não existe hover."""
+    return [f"{r}<br>n={n:.0f}" for r, n in zip(rotulos, ns)]
+
+
+def hover_taxa(pct, num, den):
+    """Monta o customdata e o texto do hover no formato '12.3%  (45 de 366)' — a taxa nunca aparece sem o
+    par de contagens que a produziu."""
+    return (
+        np.stack([pct, num, den], axis=-1),
+        "%{customdata[0]:.1f}%  (%{customdata[1]:.0f} de %{customdata[2]:.0f})<extra></extra>",
+    )
+
+
+def eixo_divergente(fig, valores, passo, casas=0):
+    """Fecha a escala simétrica em torno do zero e rotula o eixo pelo valor absoluto: abaixo da linha o
+    número continua sendo um percentual positivo de alunos. O desenho pode ser metáfora, o eixo não."""
+    teto = np.ceil(np.nanmax(np.abs(valores)) / passo) * passo
+    marcas = np.arange(-teto, teto + passo / 2, passo)
+    fig.update_yaxes(
+        tickmode="array",
+        tickvals=marcas,
+        ticktext=[f"{abs(v):.{casas}f}" for v in marcas],
+        range=[-teto * 1.12, teto * 1.12],
+    )
+    fig.add_hline(y=0, line=dict(color=CINZA, width=1))
+    return fig
+
+
+def marca_referencia(fig, x, y, nome, formato=".2f", cor=AZUL, **kw):
+    """Desenha o valor do conjunto como um traço horizontal por cima das barras, para que cada grupo seja
+    lido contra a referência e não contra o vizinho. A cor entra por parâmetro porque o traço nunca deve
+    repetir a da barra a que se refere."""
+    fig.add_scatter(
+        x=x, y=y, mode="markers", name=nome,
+        marker=dict(symbol="line-ew", size=26, line=dict(color=cor, width=2)),
+        hovertemplate="%{y:" + formato + "}<extra></extra>", **kw,
+    )
     return fig
 
 
@@ -102,52 +154,110 @@ def base_defasagem(df: pd.DataFrame) -> pd.DataFrame:
     return df[~uni | (df["id_aluno"].map(prim_07) < df["ano"])]
 
 
-ORDEM_TRAJETORIA = ["Segue em fase", "Recupera a fase ideal", "Perde a fase ideal", "Segue defasado"]
-CORES_TRAJETORIA = {
-    "Segue em fase": "#1F3A5F", "Recupera a fase ideal": "#2F6F73",
-    "Perde a fase ideal": "#DF745C", "Segue defasado": "#9AA5B1",
-}
+# Vocabulário, cores e sentidos dos destinos são os mesmos da P1 longitudinal do 02_eda.ipynb: o app não
+# renomeia nem reencena as categorias que a análise já nomeou. O sinal é o que faz a barra divergir — o que
+# melhora sobe, o que piora desce —, porque movimentos opostos não podem ficar do mesmo lado do eixo
+# distinguidos apenas pela cor.
+DESTINOS = ["recuperaram", "continuaram em fase", "defasaram", "continuaram defasados"]
+CORES_DESTINO = [TEAL, AZUL, CORAL, AMBAR]
+SENTIDOS = [1, 1, -1, -1]
+
 ORDEM_SAIDA = ["Permaneceu", "Saiu no ano seguinte"]
-CORES_SAIDA = {"Permaneceu": "#1F3A5F", "Saiu no ano seguinte": "#DF745C"}
+CORES_SAIDA = {"Permaneceu": AZUL, "Saiu no ano seguinte": CORAL}
+ORDEM_INDICADORES = ["IEG", "IDA", "IPS"]
 
 
-def taxa_defasagem_por_ano(df: pd.DataFrame, grupo: str) -> pd.DataFrame:
-    """Percentual de defasados por ano, em formato longo e com o rótulo do grupo — o `defasado` é booleano
-    anulável do pandas, e o Plotly precisa de float puro."""
-    serie = df.groupby("ano")["defasado"].mean().mul(100).astype(float)
-    return serie.rename("pct").reset_index().assign(grupo=grupo)
+def taxa_defasagem_por_ano(df: pd.DataFrame) -> pd.DataFrame:
+    """Percentual de defasados por ano com o numerador e o denominador ao lado, para que a taxa nunca viaje
+    sozinha até o hover. O `defasado` é booleano anulável do pandas, e o Plotly precisa de float puro."""
+    por_ano = df.groupby("ano")["defasado"]
+    return pd.DataFrame({
+        "pct": por_ano.mean().mul(100).astype(float),
+        "num": por_ano.sum().astype(float),
+        "den": por_ano.count().astype(float),
+    }).reset_index()
 
 
-def trajetoria_por_transicao(df: pd.DataFrame, anos: list) -> tuple[pd.DataFrame, int]:
-    """Reparte cada transição ano→ano+1 nos quatro destinos possíveis do mesmo aluno. Só entram alunos com
+def trajetoria_por_transicao(df: pd.DataFrame, anos: list) -> pd.DataFrame:
+    """Reparte cada transição ano→ano+1 nos quatro destinos possíveis do mesmo aluno, em contagem bruta — o
+    percentual é responsabilidade do gráfico, que também precisa do denominador. Só entram alunos com
     avaliação nas duas pontas: é o recorte que torna a queda de defasagem um movimento de pessoa, e não um
-    efeito de quem entrou ou saiu da base entre um ano e outro."""
+    efeito de quem entrou ou saiu da base entre um ano e outro. A última linha agrega todas as transições,
+    que é o número citado no texto ao lado."""
     largura = df.pivot_table(index="id_aluno", columns="ano", values="defasado", aggfunc="first")
-    linhas, total = [], 0
+    linhas = {}
     for ano in anos[:-1]:
         if ano + 1 not in largura.columns:
             continue
         par = largura[[ano, ano + 1]].dropna()
         antes, depois = par[ano].astype(bool), par[ano + 1].astype(bool)
-        total += len(par)
-        destinos = {
-            "Segue em fase": ~antes & ~depois, "Recupera a fase ideal": antes & ~depois,
-            "Perde a fase ideal": ~antes & depois, "Segue defasado": antes & depois,
-        }
-        linhas += [{"transicao": f"{ano}→{ano + 1}", "situacao": nome, "pct": mascara.mean() * 100}
-                   for nome, mascara in destinos.items()]
-    return pd.DataFrame(linhas), total
+        linhas[f"{ano}→{ano + 1}"] = pd.Series({
+            "recuperaram": (antes & ~depois).sum(), "continuaram em fase": (~antes & ~depois).sum(),
+            "defasaram": (~antes & depois).sum(), "continuaram defasados": (antes & depois).sum(),
+        })
+    tabela = pd.DataFrame(linhas).T
+    tabela.loc["todas as transições"] = tabela.sum()
+    return tabela
+
+
+def barras_destino(tabela: pd.DataFrame, titulo: str, eixo_x: str, altura=470, passo=25):
+    """Mesma gramática do `barras_destino` da P1 longitudinal: barras divergentes em torno do zero, eixo
+    rotulado pelo valor absoluto, n de cada grupo no próprio rótulo do eixo e hover com a contagem que
+    produziu a taxa."""
+    pct = tabela.div(tabela.sum(axis=1), axis=0).mul(100)
+    eixo = rotulo_n(tabela.index, tabela.sum(axis=1))
+    fig = go.Figure()
+    for coluna, cor, sentido in zip(DESTINOS, CORES_DESTINO, SENTIDOS):
+        dados, modelo = hover_taxa(pct[coluna], tabela[coluna], tabela.sum(axis=1))
+        fig.add_bar(x=eixo, y=sentido * pct[coluna], name=coluna, marker_color=cor, marker_line_width=0,
+                    customdata=dados, hovertemplate=modelo,
+                    texttemplate="%{customdata[0]:.1f}", textposition="inside")
+    somas = pd.concat([pct[DESTINOS[:2]].sum(axis=1), pct[DESTINOS[2:]].sum(axis=1)])
+    # Sem o uniformtext o Plotly encolhe o rótulo até caber na fatia, e "defasaram" — a menor delas — sairia
+    # ilegível ao lado dos outros três. Tamanho fixo para todos; a fatia de 10% ainda o comporta.
+    fig.update_layout(barmode="relative", title=titulo, xaxis_title=eixo_x,
+                      yaxis_title="% dos alunos acompanhados", hovermode="x unified",
+                      uniformtext=dict(mode="show", minsize=11),
+                      legend=dict(orientation="h", yanchor="top", y=-0.22, x=0, title=""))
+    eixo_divergente(fig, somas, passo)
+    return aplicar_marca(fig, altura)
 
 
 def perfil_de_saida(df: pd.DataFrame, evasao: pd.DataFrame) -> pd.DataFrame:
-    """Média de IEG, IDA e IPS no ano de referência, separando quem reapareceu na avaliação seguinte de quem
-    não reapareceu. O ano vira texto porque o Plotly trataria a coluna numérica como escala contínua."""
+    """Formato longo com um valor por aluno, indicador e ano de referência, marcando quem reapareceu na
+    avaliação seguinte. As médias e os n saem daqui no próprio gráfico, sobre a mesma linha-base: assim a
+    média do ano desenhada como referência e a média de cada grupo compartilham o denominador."""
     perfil = df.merge(evasao, left_on=["id_aluno", "ano"], right_on=["id_aluno", "ano_referencia"])
     perfil["grupo"] = perfil["evadiu"].map({True: "Saiu no ano seguinte", False: "Permaneceu"})
-    medias = perfil.groupby(["ano_referencia", "grupo"])[["ieg", "ida", "ips"]].mean().reset_index()
-    longo = medias.melt(id_vars=["ano_referencia", "grupo"], var_name="indicador", value_name="media")
-    return longo.assign(ano=lambda d: d["ano_referencia"].astype(str),
-                        indicador=lambda d: d["indicador"].str.upper())
+    longo = perfil.melt(id_vars=["ano_referencia", "grupo"], value_vars=["ieg", "ida", "ips"],
+                        var_name="indicador", value_name="valor").dropna(subset=["valor"])
+    return longo.assign(indicador=lambda d: d["indicador"].str.upper())
+
+
+def barras_perfil(longo: pd.DataFrame, titulo: str, altura=430):
+    """Um painel por ano de referência, com a média do ano desenhada por cima das barras como traço de
+    referência — cada grupo é lido contra o conjunto, não contra o vizinho."""
+    anos_ref = sorted(longo["ano_referencia"].unique())
+    fig = make_subplots(rows=1, cols=len(anos_ref), shared_yaxes=True,
+                        subplot_titles=[str(a) for a in anos_ref], horizontal_spacing=0.06)
+    for coluna, ano in enumerate(anos_ref, start=1):
+        do_ano = longo[longo["ano_referencia"] == ano]
+        media = lambda d: d.groupby("indicador")["valor"].agg(["mean", "size"]).reindex(ORDEM_INDICADORES)
+        conjunto = media(do_ano)
+        eixo = rotulo_n(conjunto.index, conjunto["size"])
+        for grupo in ORDEM_SAIDA:
+            g = media(do_ano[do_ano["grupo"] == grupo])
+            fig.add_bar(x=eixo, y=g["mean"], name=grupo, marker_color=CORES_SAIDA[grupo],
+                        marker_line_width=0, customdata=g["size"], legendgroup=grupo,
+                        showlegend=coluna == 1, texttemplate="%{y:.2f}", textposition="outside",
+                        hovertemplate="%{y:.2f}  (n=%{customdata:.0f})<extra></extra>", row=1, col=coluna)
+        marca_referencia(fig, eixo, conjunto["mean"], "média do ano", cor=AMBAR, legendgroup="ref",
+                         showlegend=coluna == 1, row=1, col=coluna)
+    fig.update_layout(barmode="group", title=titulo, hovermode="x unified",
+                      legend=dict(orientation="h", yanchor="top", y=-0.15, x=0, title=""))
+    fig.update_yaxes(range=[0, 10])
+    fig.update_yaxes(title_text="Média (0-10)", row=1, col=1)
+    return aplicar_marca(fig, altura)
 
 
 def pagina_visao_geral(df: pd.DataFrame, evasao: pd.DataFrame) -> None:
@@ -193,21 +303,30 @@ def pagina_visao_geral(df: pd.DataFrame, evasao: pd.DataFrame) -> None:
     # explicar o resultado. Definida dentro do recorte da P1, não sobre o painel bruto.
     anos_por_aluno = df_def.groupby("id_aluno")["ano"].nunique()
     coorte = anos_por_aluno[anos_por_aluno == len(anos)].index
-    serie = pd.concat([
-        taxa_defasagem_por_ano(df_def, "Painel do ano (todos os avaliados)"),
-        taxa_defasagem_por_ano(df_def[df_def["id_aluno"].isin(coorte)],
-                               f"Coorte fixa ({len(coorte)} alunos, presentes nos três anos)"),
-    ])
-    fig = px.line(
-        serie, x="ano", y="pct", color="grupo", markers=True,
-        title="Alunos defasados por ano (%): painel × coorte fixa",
-        labels={"ano": "Ano", "pct": "% defasados", "grupo": ""},
+    # A forma da linha segue o `linhas_por_fase` do EDA: símbolo de marcador distinto por série, para que a
+    # distinção não dependa só da cor, e ano no eixo por lista de marcas, nunca por passo automático.
+    series = [
+        ("Painel do ano (todos os avaliados)", taxa_defasagem_por_ano(df_def), AZUL, "circle", "top center"),
+        (f"Coorte fixa ({len(coorte)} alunos, presentes nos três anos)",
+         taxa_defasagem_por_ano(df_def[df_def["id_aluno"].isin(coorte)]), AMBAR, "square", "bottom center"),
+    ]
+    fig = go.Figure()
+    for nome, dados, cor, simbolo, posicao in series:
+        pontos, modelo = hover_taxa(dados["pct"], dados["num"], dados["den"])
+        fig.add_scatter(
+            x=dados["ano"], y=dados["pct"], name=nome, mode="lines+markers+text",
+            line=dict(color=cor, width=2), marker=dict(symbol=simbolo, size=9),
+            text=[f"{v:.1f}%" for v in dados["pct"]], textposition=posicao, textfont_color=cor,
+            customdata=pontos, hovertemplate=modelo,
+        )
+    fig.update_layout(
+        title="Alunos defasados por ano (%): painel × coorte fixa", xaxis_title="Ano",
+        yaxis_title="% defasados", hovermode="x unified",
+        legend=dict(orientation="h", yanchor="top", y=-0.22, x=0, title=""),
     )
-    fig.update_traces(line_width=2, marker_size=9)
-    fig.update_xaxes(dtick=1)
+    fig.update_xaxes(tickmode="array", tickvals=anos)
     fig.update_yaxes(range=[0, 80])
-    fig.update_layout(legend=dict(orientation="h", yanchor="top", y=-0.2, x=0))
-    col_esq.plotly_chart(aplicar_marca(fig), width="stretch")
+    col_esq.plotly_chart(aplicar_marca(fig, 470), width="stretch")
     col_esq.caption(
         "A defasagem cai de 69,9% para 49,2% no painel. Na coorte fixa — sempre os mesmos 468 alunos — ela "
         "cai mais, de 67,3% para 34,8%: o resultado é maior justamente no grupo em que a composição não "
@@ -215,17 +334,10 @@ def pagina_visao_geral(df: pd.DataFrame, evasao: pd.DataFrame) -> None:
         "que entraram em 2024, 62,8% já chegaram defasados."
     )
 
-    traj, n_transicoes = trajetoria_por_transicao(df_def, anos)
-    fig = px.bar(
-        traj, x="transicao", y="pct", color="situacao", text_auto=".1f",
-        category_orders={"situacao": ORDEM_TRAJETORIA}, color_discrete_map=CORES_TRAJETORIA,
-        title="Para onde vai o mesmo aluno, de um ano para o outro (%)",
-        labels={"transicao": "Transição", "pct": "% dos alunos acompanhados", "situacao": ""},
-    )
-    fig.update_traces(marker_line_width=0)
-    fig.update_layout(legend=dict(orientation="h", yanchor="top", y=-0.2, x=0))
-    col_dir.plotly_chart(aplicar_marca(fig), width="stretch")
-    total_fmt = f"{n_transicoes:,}".replace(",", ".")  # separador de milhar em português
+    traj = trajetoria_por_transicao(df_def, anos)
+    fig = barras_destino(traj, "Para onde vai o mesmo aluno, de um ano para o outro (%)", "Transição")
+    col_dir.plotly_chart(fig, width="stretch")
+    total_fmt = f"{traj.loc['todas as transições'].sum():,.0f}".replace(",", ".")  # milhar em português
     col_dir.caption(
         f"Aqui a queda deixa de ser estatística de turma e vira movimento de pessoa. Nas {total_fmt} "
         "transições acompanhadas, 20,9% dos alunos recuperam a fase ideal contra 10,9% que a perdem — dois "
@@ -233,17 +345,9 @@ def pagina_visao_geral(df: pd.DataFrame, evasao: pd.DataFrame) -> None:
         "23,7% em 2023→2024."
     )
 
-    fig = px.bar(
-        perfil_de_saida(df, evasao), x="indicador", y="media", color="grupo", barmode="group",
-        text_auto=".2f", facet_col="ano", category_orders={"grupo": ORDEM_SAIDA},
-        color_discrete_map=CORES_SAIDA,
-        title="Quem sai já estava atrás — média do indicador no ano de referência",
-        labels={"indicador": "", "media": "Média (0-10)", "grupo": ""},
-    )
-    fig.for_each_annotation(lambda a: a.update(text=a.text.split("=")[-1]))
-    fig.update_traces(marker_line_width=0)
-    fig.update_yaxes(range=[0, 10])
-    st.plotly_chart(aplicar_marca(fig), width="stretch")
+    fig = barras_perfil(perfil_de_saida(df, evasao),
+                        "Quem sai já estava atrás — média do indicador no ano de referência")
+    st.plotly_chart(fig, width="stretch")
 
     st.caption(
         "Entre um quarto e um terço da base se renova a cada ano — 30,2% dos alunos de 2022 não estavam lá "
