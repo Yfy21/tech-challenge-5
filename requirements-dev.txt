@@ -3,9 +3,12 @@
 # bruto, tensorflow para a rede neural do 04_modelagem, jupyter para os notebooks. Os gráficos são todos
 # Plotly (já vem do requirements.txt, por causa do dashboard); kaleido é o que exporta o fallback estático
 # em png para o GitHub, que não executa JavaScript ao exibir um .ipynb — e ele exige um Chrome, instalável
-# com `plotly_get_chrome` ou apontado por BROWSER_PATH.
+# com `plotly_get_chrome` ou apontado por BROWSER_PATH. O scipy chega de carona junto do scikit-learn,
+# mas o 02_eda importa `scipy.stats` diretamente para os testes de tendência — depender de uma transitiva
+# é frágil, então ele fica declarado aqui.
 -r requirements.txt
 openpyxl
 jupyter
 kaleido
+scipy
 tensorflow

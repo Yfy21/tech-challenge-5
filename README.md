@@ -172,8 +172,8 @@ identidade visual definida em `.streamlit/config.toml`.
 ## Como executar
 
 ```bash
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+python3.11 -m venv .venv && source .venv/bin/activate
+pip install -r requirements-dev.txt
 
 # a numeração é uma série única e reflete a ordem de execução: a limpeza alimenta o EDA, o EDA
 # fundamenta a escolha de features e o script de features alimenta a modelagem
@@ -188,3 +188,12 @@ streamlit run dashboard/app.py
 
 Os artefatos de `models/` já estão versionados, então o dashboard roda sem re-treinar nada; re-executar
 `04_modelagem.ipynb` regenera os mesmos arquivos (seeds fixas, SEED=42).
+
+São dois arquivos de dependências, de propósito. O `requirements-dev.txt` acima é o ambiente completo,
+único que roda a pipeline e os notebooks — soma openpyxl (leitura do `.xlsx` bruto), jupyter, tensorflow
+(a rede neural do `04_modelagem`) e kaleido (exportação estática dos gráficos). Já o `requirements.txt`
+tem só o que o dashboard importa: é o arquivo que o Streamlit Community Cloud lê na raiz no momento do
+deploy, e enxugá-lo evita instalar centenas de MB que a aplicação nunca usa. As versões dele estão
+pinadas porque o `risk_rf.pkl` foi serializado com scikit-learn 1.9.0 — pickle de sklearn não tem
+compatibilidade garantida entre versões. O ambiente local é Python 3.11; selecionar a mesma versão nas
+configurações avançadas do deploy.
